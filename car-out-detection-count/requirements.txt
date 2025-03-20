@@ -10,7 +10,7 @@ requests==2.28.2
 torch==1.13.1
 torchvision==0.14.1
 # ใช้ git+https เพื่อให้มั่นใจว่าเวอร์ชันเข้ากันได้
-yolov5@ git+https://github.com/ultralytics/yolov5@v7.0
+#yolov5@ git+https://github.com/ultralytics/yolov5@v7.0
 
 # สำหรับ GUI
 PyQt5==5.15.9
