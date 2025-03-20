@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  vehicle-detection:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vehicle-detection
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs  # ทำให้สามารถเข้าถึง logs จากเครื่องโฮสต์ได้
+      - ./output:/app/output  # สำหรับไฟล์ผลลัพธ์
+      - ./data:/app/data  # สำหรับไฟล์วิดีโอและข้อมูลอื่น ๆ
+      - ./config.yaml:/app/config.yaml  # ทำให้แก้ไข config ได้โดยไม่ต้องรีบิลด์
+    ports:
+      - "8080:8080"  # สำหรับ web interface (ถ้ามี)
+    # ตั้งค่าการเชื่อมต่อกับ X server สำหรับแสดงผล GUI (สำหรับ Linux เท่านั้น)
+    environment:
+      - DISPLAY=${DISPLAY}
+    # แชร์ X11 socket สำหรับแสดงผล GUI (สำหรับ Linux เท่านั้น)
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix
+    # เพิ่ม device GPU สำหรับการประมวลผล CUDA (ถ้ามี)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # สามารถเพิ่ม service อื่นๆ ได้ เช่น dashboard หรือ database
+  # dashboard:
+  #   image: grafana/grafana:latest
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - grafana-storage:/var/lib/grafana
+  #   depends_on:
+  #     - vehicle-detection
+
+# volumes:
+#   grafana-storage:
