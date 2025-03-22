@@ -54,12 +54,13 @@ class DataLogger:
     
     def log_vehicle_count(self, count_data):
         """
-        บันทึกข้อมูลจำนวนรถยนต์
+        บันทึกข้อมูลการนับรถยนต์
         
         Args:
-            count_data (dict): ข้อมูลการนับ โดยมีรูปแบบ {'total_count': int, 'new_counts': int}
+            count_data (dict): ข้อมูลการนับ {'total_count': int, 'new_counts': int}
         """
         if not self.log_enabled:
+            print("Logging is disabled")
             return
         
         # สร้างข้อมูล timestamp
@@ -68,10 +69,25 @@ class DataLogger:
         date = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H:%M:%S")
         
-        # บันทึกข้อมูลลง CSV
+        # Debug
+        print(f"Logging count data: {count_data}")
+        
+        # บันทึกลง CSV
         try:
+            # ตรวจสอบว่าไดเร็กทอรีมีอยู่หรือไม่
+            os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+            
+            # ตรวจสอบว่าไฟล์มีอยู่แล้วหรือไม่
+            file_exists = os.path.isfile(self.log_file)
+            
             with open(self.log_file, 'a', newline='') as csvfile:
                 csv_writer = csv.writer(csvfile)
+                
+                # เขียนหัวคอลัมน์ถ้าเป็นไฟล์ใหม่
+                if not file_exists:
+                    csv_writer.writerow(['timestamp', 'date', 'time', 'location_id', 'camera_id', 'count', 'total_count'])
+                    
+                # เขียนข้อมูล
                 csv_writer.writerow([
                     timestamp,
                     date,
@@ -82,7 +98,7 @@ class DataLogger:
                     count_data['total_count']
                 ])
             
-            # เก็บข้อมูลล่าสุดลงในคิว
+            # เก็บข้อมูลล่าสุดในคิว
             for _ in range(count_data['new_counts']):
                 self.recent_counts.append({
                     'timestamp': timestamp,
@@ -94,9 +110,11 @@ class DataLogger:
                     'total_count': count_data['total_count']
                 })
             
+            print(f"Successfully logged: {count_data['new_counts']} new, {count_data['total_count']} total")
             logger.debug(f"Logged vehicle count: {count_data['new_counts']} new, {count_data['total_count']} total")
         
         except Exception as e:
+            print(f"Error logging vehicle count: {e}")
             logger.error(f"Error logging vehicle count: {e}")
     
     def get_recent_counts(self, max_entries=None):

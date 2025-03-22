@@ -123,12 +123,15 @@ class DetectionWindow(QMainWindow):
             # Process frame (only if not None)
             if frame is None:
                 return
-                
+                    
             # Make a copy to avoid modifying the original
             display_frame = frame.copy()
             
             # Detect vehicles
             detections = self.vehicle_detector.detect(frame)
+            
+            # Debug
+            print(f"Detected {len(detections)} vehicles")
             
             # Draw detections
             if detections is not None:
@@ -141,6 +144,7 @@ class DetectionWindow(QMainWindow):
             if counts["new_counts"] > 0:
                 self.total_count += counts["new_counts"]
                 self.count_label.setText(f"จำนวนรถที่นับได้: {self.total_count}")
+                print(f"*** NEW VEHICLE COUNTED! Current total: {self.total_count} ***")
                 
                 # Log data
                 self.data_logger.log_vehicle_count({"total_count": self.total_count, "new_counts": counts["new_counts"]})
@@ -149,6 +153,7 @@ class DetectionWindow(QMainWindow):
             self.display_frame(display_frame)
         
         except Exception as e:
+            print(f"Error processing frame: {e}")
             logger.exception(f"Error processing frame: {e}")
             self.count_label.setText(f"เกิดข้อผิดพลาด: {str(e)}")
     
@@ -181,7 +186,7 @@ class DetectionWindow(QMainWindow):
         
         # Show confirmation dialog
         QMessageBox.information(self, "การตรวจจับสิ้นสุด", 
-                              f"สิ้นสุดการตรวจจับ\nจำนวนรถที่นับได้ทั้งหมด: {self.total_count}")
+                            f"สิ้นสุดการตรวจจับ\nจำนวนรถที่นับได้ทั้งหมด: {self.total_count}")
         
         # Close window
         self.close()

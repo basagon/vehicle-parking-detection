@@ -30,6 +30,16 @@ class LineCounter:
         self.line_position = config["detection"]["line_crossing"]["line_position"]
         self.direction = config["detection"]["line_crossing"]["direction"]
         
+        # โหลดพิกัดแบบร้อยละ (ถ้ามี)
+        if "line_position_percent" in config["detection"]["line_crossing"]:
+            self.line_percent = config["detection"]["line_crossing"]["line_position_percent"]
+        else:
+            # คำนวณจากพิกัดพิกเซลเดิม (ใช้ขนาดมาตรฐาน 1280x720 ถ้าไม่มีการกำหนด)
+            self.line_percent = [
+                [self.line_position[0][0] / 1280, self.line_position[0][1] / 720],
+                [self.line_position[1][0] / 1280, self.line_position[1][1] / 720]
+            ]
+        
         # Convert line points to numpy array for easier processing
         self.line = np.array(self.line_position, dtype=np.int32)
         
@@ -73,6 +83,9 @@ class LineCounter:
         # d = (ax + by + c) / sqrt(a² + b²)
         distance = (a * x + b * y + c) / math.sqrt(a**2 + b**2)
         
+        # Debug
+        print(f"Point: ({x}, {y}), Distance to line: {distance}")
+        
         if abs(distance) < 1e-9:  # If distance is very close to zero
             return 0
         elif distance > 0:
@@ -103,49 +116,61 @@ class LineCounter:
         # Set to track new crossings in this update
         new_crossed_ids = set()
         
+        # Debug
+        print(f"จำนวนวัตถุที่ตรวจพบในเฟรม: {len(detections)}")
+        
         # Process each detection
         for det in detections:
             x1, y1, x2, y2, conf, cls = det
             
-            # Create an ID for this vehicle (use the center point for now)
+            # Create an ID for this vehicle (use center point and downscaled coordinates for stability)
             center_x = (x1 + x2) // 2
             center_y = (y1 + y2) // 2
             
-            # In a real application, you would use a tracking algorithm to assign
-            # a persistent ID to each vehicle. For simplicity, we're using the
-            # detection coordinates as an ID.
-            vehicle_id = f"{int(center_x)}_{int(center_y)}_{int(cls)}"
+            # ใช้ ID ที่เสถียรกว่าโดยใช้พิกัดที่มีการปัดเศษลง
+            vehicle_id = f"{int(cls)}_{int(center_x//20)}_{int(center_y//20)}"
             
             # Determine which side of the line the vehicle is on
             side = self.point_side_of_line((center_x, center_y))
+            
+            # Debug
+            print(f"Vehicle ID: {vehicle_id}, Side: {side}, Position: ({center_x}, {center_y})")
             
             if vehicle_id in self.tracked_vehicles:
                 # Get previous position and side
                 prev_center_x, prev_center_y = self.tracked_vehicles[vehicle_id]["position"]
                 prev_side = self.point_side_of_line((prev_center_x, prev_center_y))
                 
-                # Check if vehicle has crossed the line
-                if side != prev_side and side != 0 and not self.tracked_vehicles[vehicle_id]["crossed"]:
-                    # Determine if the crossing direction matches our counting direction
-                    crossing_up = prev_side > side  # Moving from positive to negative (crossing upward)
+                # Debug
+                print(f"Previous side: {prev_side}, Current side: {side}")
+                
+                # ตรวจสอบการข้ามเส้นแบบเข้มงวดน้อยลง
+                if side != prev_side:
+                    # Debug info
+                    print(f"CROSSING DETECTED! Vehicle {vehicle_id} moved from side {prev_side} to {side}")
+                    
+                    # คำนวณทิศทางการข้าม
+                    crossing_up = prev_side > side
+                    
+                    # Debug
+                    print(f"Direction: {'UP' if crossing_up else 'DOWN'}, Config direction: {self.direction}")
                     
                     count_crossing = False
-                    if self.direction == "up" and crossing_up:
+                    if (self.direction == "up" and crossing_up) or (self.direction == "down" and not crossing_up) or (self.direction == "both"):
                         count_crossing = True
-                    elif self.direction == "down" and not crossing_up:
-                        count_crossing = True
-                    elif self.direction == "both":
-                        count_crossing = True
+                        print(f"COUNT ACCEPTED! Direction match: {self.direction}")
                     
-                    if count_crossing:
-                        # Mark as crossed
+                    if count_crossing and not self.tracked_vehicles[vehicle_id]["crossed"]:
+                        # นับรถ
                         self.tracked_vehicles[vehicle_id]["crossed"] = True
-                        self.tracked_vehicles[vehicle_id]["cross_time"] = current_time
+                        self.crossed_ids.add(vehicle_id)
+                        self.total_count += 1
+                        print(f"*** VEHICLE COUNTED! ID: {vehicle_id}, Total count: {self.total_count} ***")
+                        new_crossed_ids.add(vehicle_id)
                         
-                        if vehicle_id not in self.crossed_ids:
-                            self.crossed_ids.add(vehicle_id)
-                            new_crossed_ids.add(vehicle_id)
-                            self.total_count += 1
+                        # บันทึกข้อมูลสำคัญ
+                        class_names = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
+                        logger.info(f"Vehicle counted: ID={vehicle_id}, Type={class_names.get(int(cls), 'Vehicle')}, Total={self.total_count}")
                 
                 # Update position
                 self.tracked_vehicles[vehicle_id]["position"] = (center_x, center_y)
@@ -159,6 +184,7 @@ class LineCounter:
                     "last_seen": current_time,
                     "class": int(cls)
                 }
+                print(f"New vehicle added: {vehicle_id}")
         
         # Clean up tracked vehicles that haven't been seen recently (5 seconds)
         vehicles_to_remove = []
@@ -190,62 +216,76 @@ class LineCounter:
             cv2.putText(frame, label, (pos[0] - 50, pos[1] - 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
-        return {
+        result = {
             "total_count": self.total_count,
             "new_counts": len(new_crossed_ids),
             "new_vehicles": list(new_crossed_ids)
         }
+        
+        print(f"Update result: {result}")
+        return result
     
     def draw_line(self, frame):
         """
-        Draw counting line on the frame
+        วาดเส้นนับบนเฟรมโดยคำนวณพิกัดตามสัดส่วนของขนาดเฟรม
         
         Args:
-            frame (numpy.ndarray): Frame to draw on
+            frame (numpy.ndarray): เฟรมที่จะวาด
         """
-        # Draw the line
-        cv2.line(frame, tuple(self.line[0]), tuple(self.line[1]), (0, 255, 255), 2)
+        h, w = frame.shape[:2]
+        # คำนวณพิกัดจริงตามสัดส่วนของภาพปัจจุบัน
+        line_start = (int(self.line_percent[0][0] * w), int(self.line_percent[0][1] * h))
+        line_end = (int(self.line_percent[1][0] * w), int(self.line_percent[1][1] * h))
         
-        # Draw direction arrow
+        # วาดเส้น
+        cv2.line(frame, line_start, line_end, (0, 255, 255), 2)
+        
+        # วาดลูกศรบอกทิศทาง
         if self.direction != "both":
-            # Calculate midpoint of the line
-            mid_x = (self.line[0][0] + self.line[1][0]) // 2
-            mid_y = (self.line[0][1] + self.line[1][1]) // 2
+            # คำนวณจุดกึ่งกลางเส้น
+            mid_x = (line_start[0] + line_end[0]) // 2
+            mid_y = (line_start[1] + line_end[1]) // 2
             
-            # Direction vector perpendicular to line
-            dx = self.line[1][1] - self.line[0][1]  # Perpendicular direction
-            dy = self.line[0][0] - self.line[1][0]  # Perpendicular direction
+            # เวกเตอร์แนวตั้งฉากกับเส้น
+            dx = line_end[1] - line_start[1]  # สลับแกน y เป็นแนวนอน
+            dy = line_start[0] - line_end[0]  # สลับแกน x เป็นแนวตั้ง
             
-            # Normalize vector
+            # ปรับความยาวลูกศร
             length = math.sqrt(dx*dx + dy*dy)
             if length > 0:
-                dx = dx / length * 30  # Arrow length
-                dy = dy / length * 30  # Arrow length
+                dx = dx / length * 30  # ความยาวลูกศร
+                dy = dy / length * 30
             
-            # Adjust direction based on setting
+            # ปรับทิศทางตามการตั้งค่า
             if self.direction == "down":
                 dx = -dx
                 dy = -dy
             
-            # Draw arrow
+            # วาดลูกศร
             arrow_x = int(mid_x + dx)
             arrow_y = int(mid_y + dy)
             cv2.arrowedLine(frame, (mid_x, mid_y), (arrow_x, arrow_y), (0, 255, 255), 2)
     
     def draw_count(self, frame):
         """
-        Draw count information on the frame
+        แสดงข้อมูลการนับบนเฟรม
         
         Args:
-            frame (numpy.ndarray): Frame to draw on
+            frame (numpy.ndarray): เฟรมที่จะวาด
         """
-        # Prepare count text
+        # เตรียมข้อความสำหรับแสดง
         direction_text = "↑" if self.direction == "up" else "↓" if self.direction == "down" else "↕"
         count_text = f"Count {direction_text}: {self.total_count}"
         
-        # Draw count text
+        # วาดกล่องพื้นหลัง
         cv2.rectangle(frame, (10, 10), (200, 50), (0, 0, 0), -1)
+        
+        # วาดข้อความแสดงจำนวนนับ
         cv2.putText(frame, count_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        
+        # แสดงจำนวนรถที่กำลังติดตาม
+        tracking_text = f"Tracking: {len(self.tracked_vehicles)}"
+        cv2.putText(frame, tracking_text, (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     
     def reset_counter(self):
         """Reset the vehicle counter"""

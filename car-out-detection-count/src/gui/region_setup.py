@@ -6,7 +6,7 @@ Region Setup GUI Module
 โมดูลสำหรับการตั้งค่าพื้นที่ตรวจจับผ่าน GUI
 """
 
-import cv2
+import cv2,os
 import numpy as np
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                               QPushButton, QCheckBox, QMessageBox)
@@ -56,6 +56,19 @@ class RegionSetupWidget(QWidget):
         self.video_label.setMinimumSize(640, 480)
         main_layout.addWidget(self.video_label)
         
+        # โหลดภาพตัวอย่างเช่นเดียวกับที่ทำใน line_setup.py
+        sample_image_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                "data", "test_videos", "lkb_out_count.png")
+        if os.path.exists(sample_image_path):
+            self.current_frame = cv2.imread(sample_image_path)
+            if self.current_frame is not None:
+                self._display_image(self.current_frame)
+                print(f"โหลดภาพตัวอย่างจาก {sample_image_path}")
+            else:
+                print(f"ไม่สามารถโหลดภาพจาก {sample_image_path}")
+        else:
+            print(f"ไม่พบไฟล์ภาพ {sample_image_path}")
+        
         # Controls layout
         controls_layout = QHBoxLayout()
         
@@ -91,7 +104,7 @@ class RegionSetupWidget(QWidget):
         # Setup timer for video updates
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_video)
-        self.timer.start(30)  # Update every 30ms (approx. 33 FPS)
+        self.timer.start(30)  # Update every 30ms (approx. 33 fps)
     
     def init_from_config(self):
         """Initialize widget with current configuration"""
@@ -112,7 +125,12 @@ class RegionSetupWidget(QWidget):
         if not ret:
             return
         
-        self.current_frame = frame.copy()
+        # ถ้าเป็น None ให้ออกจากฟังก์ชัน
+        if self.current_frame is None:
+            return
+    
+        # สร้างสำเนาของเฟรมเพื่อวาดสิ่งต่างๆ ลงไป
+        frame = self.current_frame.copy()
         
         # Draw current region if it exists
         if len(self.region_points) > 0:
@@ -137,7 +155,7 @@ class RegionSetupWidget(QWidget):
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         # Convert to QImage and display
-        # OpenCV uses BGR format, so we need to convert to RGB
+        # OpenCV uses BGR format, so we need to convert to RGB   
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_frame.shape
         image = QImage(rgb_frame.data, w, h, w * ch, QImage.Format_RGB888)
@@ -147,6 +165,14 @@ class RegionSetupWidget(QWidget):
     def mousePressEvent(self, event):
         """Handle mouse press events for region drawing"""
         if not self.drawing_region:
+            return
+        
+        # ตรวจสอบว่า current_frame ไม่เป็น None
+        if self.current_frame is None:
+            return
+        
+        # ตรวจสอบว่า pixmap ไม่เป็น None
+        if self.video_label.pixmap() is None:
             return
         
         # Convert Qt coordinates to OpenCV coordinates
@@ -235,3 +261,19 @@ class RegionSetupWidget(QWidget):
         """Handle window close event"""
         self.timer.stop()
         event.accept()
+        
+    def _display_image(self, image):
+        """แสดงภาพบน video_label"""
+        if image is None:
+            return
+            
+        # แปลง BGR เป็น RGB เพื่อให้สีถูกต้อง
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+        
+        # สร้าง QImage จากอาเรย์ numpy
+        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        
+        # แสดงบน QLabel
+        self.video_label.setPixmap(QPixmap.fromImage(qt_image))

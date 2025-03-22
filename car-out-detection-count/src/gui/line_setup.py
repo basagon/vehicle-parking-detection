@@ -127,25 +127,25 @@ class LineSetupWidget(QWidget):
                 
 
     def init_from_config(self):
-        """Initialize widget with current configuration"""
+        """ตั้งค่าเริ่มต้นจากไฟล์ config"""
         line_config = self.config["detection"]["line_crossing"]
         
-        # กำหนดเส้นเริ่มต้นเป็นแนวนอนกลางภาพ (สำหรับตัวอย่างในรูปที่คุณแชร์)
+        # กำหนดเส้นเริ่มต้นเป็นแนวนอนตรงกลางภาพ (สำหรับตัวอย่างในรูปที่มีเส้นแดง)
         if not line_config["line_position"] or len(line_config["line_position"]) != 2:
-            # ถ้าไม่มีการกำหนดเส้นมาก่อน ให้กำหนดเส้นแนวนอนตรงกลางภาพ
+            # ถ้าไม่มีการกำหนดเส้นมาก่อน ให้กำหนดเส้นแนวนอนที่ประมาณ 60% ของความสูงภาพ
             if self.current_frame is not None:
                 h, w = self.current_frame.shape[:2]
-                middle_y = h // 2
-                self.line_points = [[int(w * 0.2), middle_y], [int(w * 0.8), middle_y]]
+                line_y = int(h * 0.6)  # ประมาณ 60% จากด้านบน - ปรับให้ตรงกับเส้นแดงในภาพ
+                self.line_points = [[int(w * 0.2), line_y], [int(w * 0.8), line_y]]
                 # กำหนดทิศทางการนับเป็น "up" (นับรถที่วิ่งจากล่างขึ้นบน)
                 self.direction_combo.setCurrentIndex(0)  # "up"
             else:
-                self.line_points = line_config["line_position"].copy()
+                self.line_points = line_config["line_position"].copy() if line_config["line_position"] else []
         else:
             # มีการกำหนดเส้นมาแล้ว ใช้ค่าจาก config
             self.line_points = line_config["line_position"].copy()
             
-            # Set direction
+            # ตั้งค่าทิศทาง
             direction = line_config["direction"]
             if direction == "up":
                 self.direction_combo.setCurrentIndex(0)
@@ -154,9 +154,8 @@ class LineSetupWidget(QWidget):
             else:  # "both"
                 self.direction_combo.setCurrentIndex(2)
         
-        # Set enabled state
+        # เปิด/ปิดการใช้งาน
         self.enable_line_checkbox.setChecked(line_config["enabled"])
-
     
     def update_video(self):
         """Update video display with current frame"""
@@ -276,23 +275,31 @@ class LineSetupWidget(QWidget):
         self.direction_combo.setEnabled(enabled)
     
     def on_save_clicked(self):
-        """Handle save button click"""
+        """บันทึกการตั้งค่า"""
         if len(self.line_points) != 2:
             QMessageBox.warning(self, "ข้อผิดพลาด", "กรุณาวาดเส้นก่อนบันทึก")
             return
         
-        # Update config
+        # คำนวณพิกัดเป็นร้อยละของขนาดภาพ
+        h, w = self.current_frame.shape[:2]
+        line_percent = [
+            [self.line_points[0][0] / w, self.line_points[0][1] / h],
+            [self.line_points[1][0] / w, self.line_points[1][1] / h]
+        ]
+        
+        # อัพเดตการตั้งค่า
         updates = {
             "detection": {
                 "line_crossing": {
                     "enabled": self.enable_line_checkbox.isChecked(),
                     "line_position": self.line_points,
+                    "line_position_percent": line_percent,  # เพิ่มค่าพิกัดร้อยละ
                     "direction": ["up", "down", "both"][self.direction_combo.currentIndex()]
                 }
             }
         }
         
-        # Save to config
+        # บันทึก
         if self.config_manager.update_config(updates):
             QMessageBox.information(self, "สำเร็จ", "บันทึกการตั้งค่าเรียบร้อยแล้ว")
             self.config = self.config_manager.get_config()

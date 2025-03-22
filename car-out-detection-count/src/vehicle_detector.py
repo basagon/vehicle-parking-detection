@@ -76,16 +76,19 @@ class VehicleDetector:
     def detect(self, frame):
         """
         Detect vehicles in a frame
+        
         Args:
             frame (numpy.ndarray): Input frame
+        
         Returns:
             list: List of detection results, each containing [x1, y1, x2, y2, confidence, class]
         """
         if self.model is None:
             return []
-            
+        
         try:
             model_type = self.config["model"]["type"].lower()
+            detections = []
             
             if model_type == "yolov5" or model_type == "yolov5m":
                 # ใช้ API ใหม่สำหรับทั้ง YOLOv5
@@ -96,7 +99,6 @@ class VehicleDetector:
                     verbose=False
                 )
                 
-                detections = []
                 if results and len(results) > 0:
                     boxes = results[0].boxes
                     for box in boxes:
@@ -104,12 +106,9 @@ class VehicleDetector:
                         x1, y1, x2, y2 = map(int, xyxy)
                         conf = float(box.conf[0].item())
                         cls = int(box.cls[0].item())
-                        
                         # Add detection in format [x1, y1, x2, y2, confidence, class]
                         detections.append([x1, y1, x2, y2, conf, cls])
                         
-                return detections
-                
             elif model_type == "yolov8":
                 # Run inference
                 results = self.model.predict(
@@ -120,7 +119,6 @@ class VehicleDetector:
                 )
                 
                 # Process results
-                detections = []
                 if results and len(results) > 0:
                     boxes = results[0].boxes
                     for box in boxes:
@@ -128,20 +126,36 @@ class VehicleDetector:
                         x1, y1, x2, y2 = map(int, xyxy)
                         conf = float(box.conf[0].item())
                         cls = int(box.cls[0].item())
-                        
                         # Add detection in format [x1, y1, x2, y2, confidence, class]
                         detections.append([x1, y1, x2, y2, conf, cls])
                         
-                return detections
-                
             else:
                 logger.error(f"Unsupported model type: {model_type}")
                 return []
+            
+            # กรองตาม ROI หากมีการเปิดใช้งาน ที่ตั้งค่าใน config.yaml ในส่วนของ detection region_of_interest enabled = True
+            if "region_of_interest" in self.config["detection"] and self.config["detection"]["region_of_interest"]["enabled"]:
+                roi_points = np.array(self.config["detection"]["region_of_interest"]["points"], np.int32)
                 
+                # กรองเฉพาะ detections ที่อยู่ในพื้นที่
+                filtered_detections = []
+                for det in detections:
+                    x1, y1, x2, y2, conf, cls = det
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    
+                    # ตรวจสอบว่าจุดศูนย์กลางอยู่ในพื้นที่หรือไม่
+                    if cv2.pointPolygonTest(roi_points, (center_x, center_y), False) >= 0:
+                        filtered_detections.append(det)
+                
+                return filtered_detections
+            
+            return detections
+            
         except Exception as e:
             logger.exception(f"Error during detection: {e}")
             return []
-    
+
     def draw_detections(self, frame, detections, draw_labels=True):
         """
         Draw detection boxes and labels on frame
@@ -169,6 +183,12 @@ class VehicleDetector:
             5: "Bus",
             7: "Truck",
         }
+        
+        # วาดพื้นที่ ROI ถ้ามีการเปิดใช้งาน
+        if "detection" in self.config and "region_of_interest" in self.config["detection"] and self.config["detection"]["region_of_interest"]["enabled"]:
+            roi_points = np.array(self.config["detection"]["region_of_interest"]["points"], np.int32)
+            roi_points = roi_points.reshape((-1, 1, 2))  # ปรับรูปแบบสำหรับ polylines
+            cv2.polylines(frame, [roi_points], True, (0, 255, 255), 2)  # วาดเส้นขอบ ROI สีเหลือง
         
         # Draw each detection
         for det in detections:

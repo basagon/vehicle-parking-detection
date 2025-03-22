@@ -89,6 +89,7 @@ class VehicleDetectionGUI(QMainWindow):
         # Create tabs
         self.create_source_tab()
         self.create_line_setup_tab()
+        self.create_region_setup_tab()
         self.create_settings_tab()
         
         # Bottom buttons
@@ -437,3 +438,10 @@ class VehicleDetectionGUI(QMainWindow):
         
         # อัพเดทชื่อหน้าต่าง
         self.setWindowTitle(f"{self.config['general']['app_name']} - Configuration")
+        
+    # เพิ่มแท็บสำหรับการตั้งค่าพื้นที่
+    def create_region_setup_tab(self):
+        """Create region of interest setup tab"""
+        # ใช้ RegionSetupWidget ที่มีอยู่แล้ว
+        self.region_setup_widget = RegionSetupWidget(self.config_manager, self.video_processor)
+        self.tab_widget.addTab(self.region_setup_widget, "ตั้งค่าพื้นที่ตรวจจับ")
