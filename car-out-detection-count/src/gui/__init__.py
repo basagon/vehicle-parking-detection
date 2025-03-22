@@ -11,15 +11,21 @@ import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, 
                               QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                               QPushButton, QFileDialog, QMessageBox)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QImage, QPixmap
 from loguru import logger
+import cv2
 
 # Import sub-modules
 from src.video_processor import VideoProcessor
 from src.vehicle_detector import VehicleDetector
+from src.line_counter import LineCounter
+from src.data_logger import DataLogger
+from src.detection_window import DetectionWindow
 
 # Import GUI components
 from src.gui.line_setup import LineSetupWidget
+from src.gui.region_setup import RegionSetupWidget
 
 def create_gui_app(config_manager):
     """
@@ -54,6 +60,10 @@ class VehicleDetectionGUI(QMainWindow):
         self.config_manager = config_manager
         self.config = config_manager.get_config()
         
+        # สร้าง central widget ก่อน
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
         # Initialize components
         self.video_processor = VideoProcessor(self.config)
         self.vehicle_detector = VehicleDetector(self.config)
@@ -69,12 +79,8 @@ class VehicleDetectionGUI(QMainWindow):
         self.setWindowTitle(f"{self.config['general']['app_name']} - Configuration")
         self.setGeometry(100, 100, 800, 600)
         
-        # Create central widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        
         # Main layout
-        main_layout = QVBoxLayout(central_widget)
+        main_layout = QVBoxLayout(self.central_widget)
         
         # Tab widget
         self.tab_widget = QTabWidget()
@@ -280,8 +286,8 @@ class VehicleDetectionGUI(QMainWindow):
         """Handle start button click"""
         # Confirm save before starting
         reply = QMessageBox.question(self, "ยืนยัน", 
-                                    "ต้องการบันทึกการตั้งค่าและเริ่มระบบตรวจจับหรือไม่?",
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                                "ต้องการบันทึกการตั้งค่าและเริ่มระบบตรวจจับหรือไม่?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
         
         if reply == QMessageBox.Yes:
             # Save config
@@ -289,8 +295,145 @@ class VehicleDetectionGUI(QMainWindow):
                 QMessageBox.critical(self, "ข้อผิดพลาด", "ไม่สามารถบันทึกการตั้งค่าได้")
                 return
             
-            # Close GUI and start detection
-            logger.info("Closing GUI and starting detection system")
-            self.close()
+            # Import detection window here to avoid circular imports
+            from src.detection_window import DetectionWindow
             
-            # Note: The main script will continue running after GUI is closed
+            # Create and show detection window
+            try:
+                self.detection_window = DetectionWindow(self.config_manager)
+                self.detection_window.show()
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการเริ่มระบบตรวจจับ: {str(e)}")
+                logger.exception(f"Error starting detection: {e}")
+    
+    def start_detection_view(self):
+        """Start detection and show live view"""
+        # สร้าง widget ใหม่แทนที่จะใช้ central widget เดิม
+        new_central_widget = QWidget()
+        self.setCentralWidget(new_central_widget)
+        
+        # สร้าง layout ใหม่
+        layout = QVBoxLayout(new_central_widget)
+        
+        # สร้าง video display
+        self.detection_view = QLabel("กำลังเริ่มการตรวจจับ...")
+        self.detection_view.setAlignment(Qt.AlignCenter)
+        self.detection_view.setMinimumSize(800, 600)
+        layout.addWidget(self.detection_view)
+        
+        # Controls layout
+        controls_layout = QHBoxLayout()
+        
+        # Count display
+        self.count_label = QLabel("จำนวนรถที่นับได้: 0")
+        self.count_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        controls_layout.addWidget(self.count_label)
+        
+        # Stop button
+        self.stop_button = QPushButton("หยุดการตรวจจับ")
+        self.stop_button.clicked.connect(self.on_stop_clicked)
+        controls_layout.addWidget(self.stop_button)
+        
+        layout.addLayout(controls_layout)
+        
+        # เตรียมการเริ่มต้นตรวจจับ
+        try:
+            # กำหนดแหล่งวิดีโอ
+            if self.config["general"]["test_mode"]:
+                video_source = self.config["video_source"]["test_video"]
+                logger.info(f"Using test video: {video_source}")
+            else:
+                video_source = self.video_processor.build_rtsp_url()
+                logger.info(f"Using RTSP stream: {video_source}")
+            
+            # เปิดแหล่งวิดีโอ
+            if not self.video_processor.open_video_source(video_source):
+                raise Exception(f"ไม่สามารถเปิดแหล่งวิดีโอได้: {video_source}")
+            
+            # สร้าง line counter
+            self.line_counter = LineCounter(self.config)
+            
+            # สร้าง data logger
+            self.data_logger = DataLogger(self.config)
+            
+            # เริ่ม timer สำหรับประมวลผลเฟรม
+            self.detection_timer = QTimer(self)
+            self.detection_timer.timeout.connect(self.process_frame)
+            self.detection_timer.start(30)  # 30ms ~ 33fps
+            
+            # อัพเดทชื่อหน้าต่าง
+            self.setWindowTitle(f"{self.config['general']['app_name']} - การตรวจจับกำลังทำงาน")
+            
+            # อัพเดทสถานะ
+            self.total_count = 0
+            
+        except Exception as e:
+            logger.exception(f"Error in start_detection_view: {e}")
+            self.video_processor.release()
+            raise Exception(f"ไม่สามารถเริ่มระบบตรวจจับได้: {str(e)}")
+    
+    def process_frame(self):
+        """Process a single frame for detection"""
+        try:
+            # อ่านเฟรม
+            ret, frame = self.video_processor.read_frame()
+            if not ret:
+                self.count_label.setText("สิ้นสุดวิดีโอ หรือมีปัญหาในการอ่านเฟรม")
+                self.detection_timer.stop()
+                return
+            
+            # ตรวจจับรถยนต์
+            detections = self.vehicle_detector.detect(frame)
+            
+            # วาดกรอบการตรวจจับ
+            frame = self.vehicle_detector.draw_detections(frame, detections)
+            
+            # นับรถยนต์ที่ตัดผ่านเส้น
+            counts = self.line_counter.update(frame, detections)
+            
+            # อัพเดทการแสดงผลจำนวนนับ
+            if counts["new_counts"] > 0:
+                self.total_count += counts["new_counts"]
+                self.count_label.setText(f"จำนวนรถที่นับได้: {self.total_count}")
+                
+                # บันทึกข้อมูล
+                self.data_logger.log_vehicle_count({"total_count": self.total_count, "new_counts": counts["new_counts"]})
+            
+            # แสดงเฟรม
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
+            image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            self.detection_view.setPixmap(QPixmap.fromImage(image))
+            
+        except Exception as e:
+            logger.exception(f"Error in process_frame: {e}")
+            self.count_label.setText(f"เกิดข้อผิดพลาด: {str(e)}")
+    
+    def on_stop_clicked(self):
+        """Handle stop button click"""
+        # หยุด timer
+        if hasattr(self, 'detection_timer'):
+            self.detection_timer.stop()
+        
+        # คืนทรัพยากรวิดีโอ
+        self.video_processor.release()
+        
+        # แสดง dialog ยืนยัน
+        QMessageBox.information(self, "การตรวจจับสิ้นสุด", 
+                              f"สิ้นสุดการตรวจจับ\nจำนวนรถที่นับได้ทั้งหมด: {self.total_count}")
+        
+        # กลับไปที่หน้าตั้งค่า
+        self.recreate_ui()
+    
+    def recreate_ui(self):
+        """Recreate the original UI"""
+        # สร้าง widget ใหม่
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        # สร้าง UI ใหม่
+        self.init_ui()
+        
+        # อัพเดทชื่อหน้าต่าง
+        self.setWindowTitle(f"{self.config['general']['app_name']} - Configuration")
