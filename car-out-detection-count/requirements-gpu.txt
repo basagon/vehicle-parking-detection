@@ -1,0 +1,32 @@
+# Core dependencies
+#numpy==1.23.5
+numpy<2
+opencv-python==4.7.0.72
+python-dotenv==1.0.1
+requests==2.28.2
+pyyaml==6.0.2
+# For YOLOv5 เสถียรที่สุดคือ torch 1.13.1 และ torchvision 0.14.1 แต่ในเวอร์ชันใหม่ๆ อาจจะใช้ไม่ได้ รวมทั้งระบบทดสอบเป็น MacOS Intel
+torch==1.13.1
+torchvision==0.14.1
+# ใช้ git+https เพื่อให้มั่นใจว่าเวอร์ชันเข้ากันได้
+#yolov5@ git+https://github.com/ultralytics/yolov5@v7.0
+
+# สำหรับ GUI
+PySide6==6.5.2
+
+# Utilities
+tqdm==4.65.0
+pillow==9.4.0
+matplotlib==3.7.1
+scikit-image==0.19.3
+pandas==1.5.3
+
+# สำหรับการ logging และ monitoring
+loguru==0.7.3
+
+ultralytics==8.0.20  # สำหรับ YOLOv8 (ถ้าต้องการรองรับทั้ง YOLOv5 และ YOLOv8)
+opencv-contrib-python==4.7.0.72  # สำหรับฟีเจอร์เพิ่มเติมของ OpenCV
+
+# ถ้าต้องการรองรับ GPU (ระบบจะติดตั้งเองเมื่อติดตั้ง PyTorch)
+torch==1.13.1+cu116  # เวอร์ชันที่รองรับ CUDA 11.6
+torchvision==0.14.1+cu116  # เวอร์ชันที่รองรับ CUDA 11.6

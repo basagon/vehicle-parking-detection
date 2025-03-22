@@ -27,7 +27,7 @@
 │   └── test_line_counter.py
 │
 ├── models/                  # โมเดลที่ผ่านการเทรนแล้ว
-│   └── yolov5s.pt           # โมเดล YOLOv5s pre-trained
+│   └── yolov5mu.pt           # โมเดล YOLOv5s pre-trained
 │
 ├── data/                    # ข้อมูลสำหรับการทดสอบและ calibration
 │   ├── test_videos/
@@ -38,3 +38,7 @@
 └── logs/                    # บันทึกการทำงานของระบบ
     ├── vehicle_counts/      # บันทึกการนับรถยนต์
     └── system/              # บันทึกการทำงานของระบบ
+
+    
+brew install qt
+pip install -r requirement.txt

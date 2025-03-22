@@ -12,7 +12,7 @@ import torch
 import numpy as np
 from loguru import logger
 from pathlib import Path
-
+from ultralytics import YOLO
 class VehicleDetector:
     """Class for detecting vehicles using YOLO models"""
     
@@ -37,115 +37,107 @@ class VehicleDetector:
         try:
             model_type = self.config["model"]["type"].lower()
             model_path = self.config["model"]["model_path"]
-            
             logger.info(f"Loading {model_type} model from {model_path}...")
             
-            if model_type == "yolov5":
-                # Check if YOLOv5 package is installed
+            if model_type == "yolov5" or model_type == "yolov5m":
+                # ใช้โมเดลมาตรฐานแทนไฟล์ที่มีปัญหา
                 try:
-                    import yolov5
-                except ImportError:
-                    logger.error("YOLOv5 not installed. Please install it with: pip install -U yolov5")
-                    raise ImportError("YOLOv5 not installed")
-                
-                # Load model
-                self.model = yolov5.load(model_path, device=self.device)
-                
-                # Set model parameters
-                self.model.conf = self.conf_threshold  # Detection confidence threshold
-                self.model.classes = self.classes      # Filter by class (e.g., cars, trucks)
-                self.model.max_det = 50               # Maximum number of detections per image
-                
-                logger.info(f"YOLOv5 model loaded successfully on {self.device}")
-            
-            elif model_type == "yolov8":
-                # Check if Ultralytics package is installed
-                try:
-                    from ultralytics import YOLO
+                    # ใช้โมเดลมาตรฐานแทนไฟล์ที่มีปัญหา
+                    self.model = YOLO("yolov5mu.pt")  # ดาวน์โหลดโมเดลมาตรฐานแทน
+                    logger.info(f"YOLOv5 model loaded successfully on {self.device}")
                 except ImportError:
                     logger.error("Ultralytics not installed. Please install it with: pip install -U ultralytics")
                     raise ImportError("Ultralytics not installed")
-                
-                # Load model
-                self.model = YOLO(model_path)
-                
-                # Set device
-                if self.device != "cpu":
-                    self.model.to(self.device)
-                
-                logger.info(f"YOLOv8 model loaded successfully on {self.device}")
-            
+                    
+            elif model_type == "yolov8":
+                # Check if Ultralytics package is installed
+                try:
+                    # Load model
+                    self.model = YOLO("yolov8n.pt")  # ใช้โมเดลมาตรฐานแทน
+                    
+                    # Set device
+                    if self.device != "cpu":
+                        self.model.to(self.device)
+                        
+                    logger.info(f"YOLOv8 model loaded successfully on {self.device}")
+                    
+                except ImportError:
+                    logger.error("Ultralytics not installed. Please install it with: pip install -U ultralytics")
+                    raise ImportError("Ultralytics not installed")
+                    
             else:
                 raise ValueError(f"Unsupported model type: {model_type}")
-        
+                
         except Exception as e:
             logger.exception(f"Error loading model: {e}")
             logger.warning("Continuing without object detection...")
             self.model = None
-    
+        
     def detect(self, frame):
         """
         Detect vehicles in a frame
-        
         Args:
             frame (numpy.ndarray): Input frame
-        
         Returns:
             list: List of detection results, each containing [x1, y1, x2, y2, confidence, class]
         """
         if self.model is None:
             return []
-        
+            
         try:
             model_type = self.config["model"]["type"].lower()
             
-            if model_type == "yolov5":
-                # Run inference
-                results = self.model(frame)
+            if model_type == "yolov5" or model_type == "yolov5m":
+                # ใช้ API ใหม่สำหรับทั้ง YOLOv5
+                results = self.model.predict(
+                    frame,
+                    conf=self.conf_threshold,
+                    classes=self.classes,
+                    verbose=False
+                )
                 
-                # Process results
                 detections = []
-                
-                # Convert to numpy array
-                predictions = results.pred[0].cpu().numpy()
-                
-                for prediction in predictions:
-                    x1, y1, x2, y2, conf, cls = prediction
-                    
-                    # Filter by confidence and class
-                    if conf >= self.conf_threshold and int(cls) in self.classes:
-                        # Add detection in format [x1, y1, x2, y2, confidence, class]
-                        detections.append([
-                            int(x1), int(y1), int(x2), int(y2), 
-                            float(conf), int(cls)
-                        ])
-                
-                return detections
-            
-            elif model_type == "yolov8":
-                # Run inference
-                results = self.model(frame, conf=self.conf_threshold, classes=self.classes)
-                
-                # Process results
-                detections = []
-                
-                for result in results:
-                    boxes = result.boxes
-                    
-                    for i, box in enumerate(boxes):
-                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                        conf = float(box.conf[0])
-                        cls = int(box.cls[0])
+                if results and len(results) > 0:
+                    boxes = results[0].boxes
+                    for box in boxes:
+                        xyxy = box.xyxy[0].cpu().numpy()
+                        x1, y1, x2, y2 = map(int, xyxy)
+                        conf = float(box.conf[0].item())
+                        cls = int(box.cls[0].item())
                         
                         # Add detection in format [x1, y1, x2, y2, confidence, class]
                         detections.append([x1, y1, x2, y2, conf, cls])
-                
+                        
                 return detections
-            
+                
+            elif model_type == "yolov8":
+                # Run inference
+                results = self.model.predict(
+                    frame,
+                    conf=self.conf_threshold,
+                    classes=self.classes,
+                    verbose=False
+                )
+                
+                # Process results
+                detections = []
+                if results and len(results) > 0:
+                    boxes = results[0].boxes
+                    for box in boxes:
+                        xyxy = box.xyxy[0].cpu().numpy()
+                        x1, y1, x2, y2 = map(int, xyxy)
+                        conf = float(box.conf[0].item())
+                        cls = int(box.cls[0].item())
+                        
+                        # Add detection in format [x1, y1, x2, y2, confidence, class]
+                        detections.append([x1, y1, x2, y2, conf, cls])
+                        
+                return detections
+                
             else:
                 logger.error(f"Unsupported model type: {model_type}")
                 return []
-        
+                
         except Exception as e:
             logger.exception(f"Error during detection: {e}")
             return []

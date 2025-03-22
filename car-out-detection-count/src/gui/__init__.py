@@ -8,10 +8,10 @@ GUI Module for Vehicle Detection System
 
 import os
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QTabWidget, 
-                            QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QFileDialog, QMessageBox)
-from PyQt5.QtCore import Qt
+from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, 
+                              QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+                              QPushButton, QFileDialog, QMessageBox)
+from PySide6.QtCore import Qt
 from loguru import logger
 
 # Import sub-modules

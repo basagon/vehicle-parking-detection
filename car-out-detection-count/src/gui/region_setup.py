@@ -8,17 +8,17 @@ Region Setup GUI Module
 
 import cv2
 import numpy as np
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QCheckBox, QMessageBox)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+                              QPushButton, QCheckBox, QMessageBox)
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QImage, QPixmap
 from loguru import logger
 
 class RegionSetupWidget(QWidget):
     """Widget for setting up region of interest (ROI)"""
     
     # Define signals
-    region_updated = pyqtSignal(list)  # จุดของพื้นที่ [[x1, y1], [x2, y2], ...]
+    region_updated = Signal(list)  # จุดของพื้นที่ [[x1, y1], [x2, y2], ...]
     
     def __init__(self, config_manager, video_processor, parent=None):
         """

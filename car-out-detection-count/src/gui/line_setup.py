@@ -6,20 +6,20 @@ Line Setup GUI Module
 โมดูลสำหรับการตั้งค่าเส้นตรวจจับผ่าน GUI
 """
 
-import cv2
+import cv2,os
 import numpy as np
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QComboBox, QCheckBox, QMessageBox)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+                              QPushButton, QComboBox, QCheckBox, QMessageBox)
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QImage, QPixmap
 from loguru import logger
 
 class LineSetupWidget(QWidget):
     """Widget for setting up detection line"""
     
     # Define signals
-    line_updated = pyqtSignal(list)  # จุดของเส้น [[x1, y1], [x2, y2]]
-    direction_updated = pyqtSignal(str)  # ทิศทาง ("up", "down", "both")
+    line_updated = Signal(list)  # จุดของเส้น [[x1, y1], [x2, y2]]
+    direction_updated = Signal(str)  # ทิศทาง ("up", "down", "both"
     
     def __init__(self, config_manager, video_processor, parent=None):
         """
@@ -56,6 +56,23 @@ class LineSetupWidget(QWidget):
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumSize(640, 480)
         main_layout.addWidget(self.video_label)
+        
+        # --- additional 2025-03-22 ---
+        # โหลดภาพตัวอย่างถ้าไม่มีวิดีโอ
+        sample_image_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                         "data", "test_videos", "lkb_out_count.png")
+        if os.path.exists(sample_image_path):
+            self.current_frame = cv2.imread(sample_image_path)
+            if self.current_frame is not None:
+                # แสดงภาพ
+                self._display_image(self.current_frame)
+                print(f"โหลดภาพตัวอย่างจาก {sample_image_path}")
+            else:
+                print(f"ไม่สามารถโหลดภาพจาก {sample_image_path}")
+        else:
+            print(f"ไม่พบไฟล์ภาพ {sample_image_path}")
+        # --- สิ้นสุดโค้ดส่วนเพิ่ม 2025-03-22---
+        
         
         # Controls layout
         controls_layout = QHBoxLayout()
@@ -99,36 +116,60 @@ class LineSetupWidget(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_video)
         self.timer.start(30)  # Update every 30ms (approx. 33 FPS)
-    
+        
+        sample_image_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                    "data", "sample_images", "road_example.jpg")
+        if os.path.exists(sample_image_path):
+            image = cv2.imread(sample_image_path)
+            if image is not None:
+                self.current_frame = image.copy()
+                self._update_display(image)
+                
+
     def init_from_config(self):
         """Initialize widget with current configuration"""
         line_config = self.config["detection"]["line_crossing"]
         
-        # Set line points
-        self.line_points = line_config["line_position"].copy()
-        
-        # Set direction
-        direction = line_config["direction"]
-        if direction == "up":
-            self.direction_combo.setCurrentIndex(0)
-        elif direction == "down":
-            self.direction_combo.setCurrentIndex(1)
-        else:  # "both"
-            self.direction_combo.setCurrentIndex(2)
+        # กำหนดเส้นเริ่มต้นเป็นแนวนอนกลางภาพ (สำหรับตัวอย่างในรูปที่คุณแชร์)
+        if not line_config["line_position"] or len(line_config["line_position"]) != 2:
+            # ถ้าไม่มีการกำหนดเส้นมาก่อน ให้กำหนดเส้นแนวนอนตรงกลางภาพ
+            if self.current_frame is not None:
+                h, w = self.current_frame.shape[:2]
+                middle_y = h // 2
+                self.line_points = [[int(w * 0.2), middle_y], [int(w * 0.8), middle_y]]
+                # กำหนดทิศทางการนับเป็น "up" (นับรถที่วิ่งจากล่างขึ้นบน)
+                self.direction_combo.setCurrentIndex(0)  # "up"
+            else:
+                self.line_points = line_config["line_position"].copy()
+        else:
+            # มีการกำหนดเส้นมาแล้ว ใช้ค่าจาก config
+            self.line_points = line_config["line_position"].copy()
+            
+            # Set direction
+            direction = line_config["direction"]
+            if direction == "up":
+                self.direction_combo.setCurrentIndex(0)
+            elif direction == "down":
+                self.direction_combo.setCurrentIndex(1)
+            else:  # "both"
+                self.direction_combo.setCurrentIndex(2)
         
         # Set enabled state
         self.enable_line_checkbox.setChecked(line_config["enabled"])
+
     
     def update_video(self):
         """Update video display with current frame"""
-        if self.video_processor.cap is None or not self.video_processor.cap.isOpened():
+            # ถ้ามีวิดีโอกำลังเล่นอยู่
+        if self.video_processor.cap is not None and self.video_processor.cap.isOpened():
+            ret, frame = self.video_processor.read_frame()
+            if ret:
+                self.current_frame = frame.copy()
+        # ถ้าไม่มีวิดีโอแต่มีเฟรมปัจจุบัน ให้ใช้เฟรมนั้น
+        elif self.current_frame is None:
             return
-        
-        ret, frame = self.video_processor.read_frame()
-        if not ret:
-            return
-        
-        self.current_frame = frame.copy()
+        # สร้างเฟรมใหม่จาก current_frame เพื่อวาดเส้นและจุด
+        frame = self.current_frame.copy()
         
         # Draw current line if it exists
         if len(self.line_points) == 2:
@@ -175,7 +216,11 @@ class LineSetupWidget(QWidget):
     
     def mousePressEvent(self, event):
         """Handle mouse press events for line drawing"""
-        if not self.drawing_line:
+        if not self.drawing_line or self.current_frame is None:
+            return
+        
+        # ตรวจสอบว่ามี pixmap หรือไม่
+        if self.video_label.pixmap() is None:
             return
         
         # Convert Qt coordinates to OpenCV coordinates
@@ -267,3 +312,21 @@ class LineSetupWidget(QWidget):
         """Handle window close event"""
         self.timer.stop()
         event.accept()
+        
+    # --- additional 2025-03-22 ---
+    def _display_image(self, image):
+        """แสดงภาพบน video_label"""
+        if image is None:
+            return
+            
+        # แปลง BGR เป็น RGB เพื่อให้สีถูกต้อง
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+        
+        # สร้าง QImage จากอาเรย์ numpy
+        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        
+        # แสดงบน QLabel
+        self.video_label.setPixmap(QPixmap.fromImage(qt_image))   
+        # ปรับขนาด QLabel ให้พอดีกับภาพ (แต่ยังไม่เต็ม)  

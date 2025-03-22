@@ -95,7 +95,7 @@ def main():
     if args.gui or config["gui"]["enabled"]:
         logger.info("Starting GUI...")
         app = create_gui_app(config_manager)
-        return app.exec_()
+        return app.exec()
     
     # Initialize components
     try:
